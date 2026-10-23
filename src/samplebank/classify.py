@@ -7,9 +7,9 @@ _NAME_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(p), t)
     for p, t in [
         (r"bass", "bass"),
-        (r"kick|^\d*bd", "kick"),
-        (r"^\d*(sn|sd|cp)|clap", "snare"),
-        (r"^\d*(hh|cy|oh)|hat|^ho$|cymbal|ride|crash|^(cc|cr)$", "hat"),
+        (r"kick|^\d*bd\d*$", "kick"),
+        (r"^\d*(sn|sd|cp)\d*$|clap", "snare"),
+        (r"^\d*(hh|cy|oh)\d*$|hat|^ho$|cymbal|ride|crash|^(cc|cr)$", "hat"),
         (r"^808(ht|mt|lt|lc|mc)$|^(ht|mt|lt|cb)$", "perc"),
         (r"break|amen|loop", "loop"),
         (r"numbers|speak|speech|diphone|voice|vox|mouth|alphabet|kurt", "voice"),
