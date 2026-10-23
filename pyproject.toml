@@ -26,4 +26,5 @@ build-backend = "uv_build"
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "soundfile>=0.14.0",
 ]

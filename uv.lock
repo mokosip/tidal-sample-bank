@@ -541,6 +541,7 @@ dependencies = [
 dev = [
     { name = "httpx" },
     { name = "pytest" },
+    { name = "soundfile" },
 ]
 
 [package.metadata]
@@ -559,6 +560,7 @@ requires-dist = [
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
+    { name = "soundfile", specifier = ">=0.14.0" },
 ]
 
 [[package]]
