@@ -51,3 +51,23 @@ export async function collect({ entries, loose }) {
   const dir = entries.find((e) => e.isDirectory);
   return { files, folder: dir ? fromFolder(dir.name) : "" };
 }
+
+// ---------- trim on upload ----------
+export const AUTO_TRIM_S = 4; // files longer than this get a trim step automatically
+export const autoTrim = (f) => f.duration > AUTO_TRIM_S;
+export const fmtDur = (d) => `${d < 0.1 ? d.toFixed(2) : d.toFixed(1)} s`;
+
+// below one frame at any rate the browser accepts (768 kHz: 1.3 µs)
+const SAME_S = 1e-7;
+
+// One /api/upload/commit entry. choice: undefined (never trimmed -> whole) or
+// {action: "range"|"whole"|"skip", sel: {start, end}, fade}. A range covering the whole file
+// is sent as "whole" so the file is stored as is instead of being re-encoded.
+export function commitItem(file, choice) {
+  const { token } = file;
+  if (!choice || choice.action === "whole") return { token, action: "whole" };
+  if (choice.action === "skip") return { token, action: "skip" };
+  const { start, end } = choice.sel;
+  if (start <= SAME_S && Math.abs(end - file.duration) <= SAME_S) return { token, action: "whole" };
+  return { token, action: "range", start, end, fade: !!choice.fade };
+}

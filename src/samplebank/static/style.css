@@ -433,6 +433,15 @@ body[data-view="map"] .keys .list-only { display: none; }
 .modal-btn:hover, .modal-btn:focus-visible { color: var(--text-hot); border-color: var(--text); outline: none; }
 .modal-btn.hot { color: var(--text-hot); border-color: var(--text-dim); }
 .modal-btn:disabled { color: var(--text-faint); border-color: var(--rule); cursor: default; }
+.modal-box.wide { width: 860px; } /* trim step: the readout and fade pill stay on one line beside the state */
+.upload-list { max-height: 200px; overflow-y: auto; margin: 0 0 12px; font-size: 12px; }
+.upload-row { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.upload-row .modal-btn { padding: 0 8px; font-size: 12px; }
+.upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-dur { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.upload-row.bad .upload-name, .upload-row.bad .upload-dur { color: var(--warn); }
+.trim-actions { flex-wrap: wrap; margin-top: 12px; }
+.modal-next { flex: 1; min-width: 0; font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- trim view (upload dialog) ---- */
 .trim { display: flex; flex-direction: column; gap: 4px; outline: none; padding: 6px; margin: 0 -6px; border: 1px solid transparent; border-radius: 4px; }

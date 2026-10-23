@@ -42,20 +42,35 @@
   <div id="toast" class="toast" hidden></div>
   <div id="drop" class="drop" hidden><div class="drop-box">drop to add samples<small>files or folders · wav aif mp3 flac ogg …</small></div></div>
   <div id="upload-modal" class="modal" hidden>
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+    <div id="upload-box" class="modal-box" role="dialog" aria-modal="true" aria-labelledby="upload-title">
       <div id="upload-title" class="modal-title"></div>
-      <div id="upload-files" class="modal-files"></div>
-      <label class="insp-label" for="upload-bank">bank</label>
-      <input id="upload-bank" class="modal-input" list="upload-banks" autocomplete="off" spellcheck="false">
-      <datalist id="upload-banks"></datalist>
-      <div id="upload-preview" class="modal-preview"></div>
-      <div class="modal-row">
-        <span id="upload-msg" class="modal-msg"></span>
-        <button id="upload-suggest" class="modal-btn hot" hidden></button>
+      <div id="upload-bank-step">
+        <div id="upload-files" class="modal-files"></div>
+        <div id="upload-list" class="upload-list"></div>
+        <label class="insp-label" for="upload-bank">bank</label>
+        <input id="upload-bank" class="modal-input" list="upload-banks" autocomplete="off" spellcheck="false">
+        <datalist id="upload-banks"></datalist>
+        <div id="upload-preview" class="modal-preview"></div>
+        <div class="modal-row">
+          <span id="upload-msg" class="modal-msg"></span>
+          <button id="upload-suggest" class="modal-btn hot" hidden></button>
+        </div>
+        <div class="modal-row end">
+          <button id="upload-cancel" class="modal-btn"><kbd>esc</kbd>cancel</button>
+          <button id="upload-ok" class="modal-btn hot"><kbd>⏎</kbd>add</button>
+        </div>
       </div>
-      <div class="modal-row end">
-        <button id="upload-cancel" class="modal-btn"><kbd>esc</kbd>cancel</button>
-        <button id="upload-ok" class="modal-btn hot"><kbd>⏎</kbd>add</button>
+      <div id="upload-trim-step" hidden>
+        <div id="upload-into" class="modal-files"></div>
+        <div id="upload-trim"></div>
+        <div class="modal-row end trim-actions">
+          <span id="upload-next" class="modal-next"></span>
+          <button id="trim-cancel" class="modal-btn" title="cancel the whole upload"><kbd>esc</kbd>cancel</button>
+          <button id="trim-back" class="modal-btn">‹ back</button>
+          <button id="trim-skip" class="modal-btn">skip this file</button>
+          <button id="trim-whole" class="modal-btn">keep whole file</button>
+          <button id="trim-keep" class="modal-btn hot"><kbd>⏎</kbd>keep selection</button>
+        </div>
       </div>
     </div>
   </div>

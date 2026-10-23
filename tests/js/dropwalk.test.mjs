@@ -47,3 +47,34 @@ test("grab falls back to getAsFile, then to dt.files", () => {
   assert.deepEqual(grab({ items, files: [] }), { entries: [], loose: [f] });
   assert.deepEqual(grab({ items: { length: 0 }, files: [f] }), { entries: [], loose: [f] });
 });
+
+import { AUTO_TRIM_S, autoTrim, commitItem, fmtDur } from "../../src/samplebank/static/dropwalk.js";
+
+test("trim step opens automatically only above 4 s", () => {
+  assert.equal(AUTO_TRIM_S, 4);
+  assert.equal(autoTrim({ duration: 4 }), false);
+  assert.equal(autoTrim({ duration: 4.0001 }), true);
+  assert.equal(autoTrim({ duration: 1 }), false);
+});
+
+test("commitItem: no choice = whole, range kept, full-file range sent as whole", () => {
+  const f = { token: "t", duration: 40 };
+  assert.deepEqual(commitItem(f, undefined), { token: "t", action: "whole" });
+  assert.deepEqual(commitItem(f, { action: "skip" }), { token: "t", action: "skip" });
+  assert.deepEqual(commitItem(f, { action: "whole", sel: { start: 1, end: 2 }, fade: true }), { token: "t", action: "whole" });
+  assert.deepEqual(commitItem(f, { action: "range", sel: { start: 12.84, end: 14.91 }, fade: true }), {
+    token: "t", action: "range", start: 12.84, end: 14.91, fade: true,
+  });
+  assert.deepEqual(commitItem(f, { action: "range", sel: { start: 1, end: 2 }, fade: false }).fade, false);
+  // the trim view's whole-file selection is frame-snapped: end = round(dur*sr)/sr, equal to duration within a frame
+  const g = { token: "u", duration: 1764000 / 44100 };
+  assert.deepEqual(commitItem(g, { action: "range", sel: { start: 0, end: 1764000 / 44100 }, fade: true }), { token: "u", action: "whole" });
+  assert.equal(commitItem(g, { action: "range", sel: { start: 0, end: 1763999 / 44100 }, fade: true }).action, "range");
+  assert.equal(commitItem(g, { action: "range", sel: { start: 1 / 44100, end: 1764000 / 44100 }, fade: true }).action, "range");
+});
+
+test("fmtDur", () => {
+  assert.equal(fmtDur(40.3), "40.3 s");
+  assert.equal(fmtDur(1), "1.0 s");
+  assert.equal(fmtDur(0.04), "0.04 s");
+});
