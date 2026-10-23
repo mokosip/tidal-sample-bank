@@ -8,3 +8,15 @@ def test_counts_banks_in_mininotation(tmp_path):
     u = bank_usage(tmp_path)
     assert u["bd"] == 1 and u["hh27"] == 2 and u["arpy"] == 1 and u["sn"] == 1
     assert u.get("cp", 0) == 1  # comments count too: they are ideas Moko kept
+
+
+def test_digit_first_banks_counted_pure_digits_not(tmp_path):
+    (tmp_path / "a.tidal").write_text('d1 $ s "808bd 808:3 3"')
+    u = bank_usage(tmp_path)
+    assert u["808bd"] == 1 and u["808"] == 1 and "3" not in u
+
+
+def test_unreadable_file_skipped(tmp_path):
+    (tmp_path / "ok.tidal").write_text('s "bd"')
+    (tmp_path / "x.tidal").symlink_to(tmp_path / "missing")
+    assert bank_usage(tmp_path) == {"bd": 1}
