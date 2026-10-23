@@ -46,7 +46,7 @@ def cut_wav(source: bytes, start: float, end: float, fade: bool = True) -> bytes
             raise ValueError("end is beyond the end of the file")
         a = _round_half_up(start * sr)
         b = min(_round_half_up(end * sr), total)
-        if b - a < MIN_SLICE_S * sr:
+        if b - a < _round_half_up(MIN_SLICE_S * sr):
             raise ValueError("selection is shorter than 10 ms")
         # Unfaded PCM stays in integer domain so the cut is bit-identical.
         exact_int = not fade and subtype.startswith("PCM_")

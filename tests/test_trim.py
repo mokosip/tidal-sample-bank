@@ -113,3 +113,11 @@ def test_frame_conversion_round_half_up():
     raw = _wav(src, sr=2)
     out, _ = _read(cut_wav(raw, 0.25, 1.75, fade=False), dtype="int16")
     assert out[:, 0].tolist() == [1, 2, 3]  # frames [floor(.5+.5), floor(3.5+.5)) = [1, 4)
+
+
+def test_min_slice_limit_is_in_frames():
+    raw = _wav(np.zeros(11025), sr=11025)
+    out, _ = _read(cut_wav(raw, 0.0, 110 / 11025, fade=False))
+    assert len(out) == 110  # exactly 10 ms at 11025 Hz
+    with pytest.raises(ValueError):
+        cut_wav(raw, 0.0, 109 / 11025, fade=False)
