@@ -1,7 +1,7 @@
 [project]
 name = "samplebank"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local browser tool to audition, tag and add TidalCycles/SuperDirt samples"
 readme = "README.md"
 authors = [
     { name = "Moritz Konschack", email = "53667624+mokosip@users.noreply.github.com" }
@@ -14,6 +14,7 @@ dependencies = [
     "python-multipart>=0.0.32",
     "python-osc>=1.10.2",
     "scikit-learn>=1.9.1",
+    "soundfile>=0.14.0",
     "umap-learn>=0.5.12",
     "uvicorn>=0.54.0",
 ]
@@ -26,5 +27,4 @@ build-backend = "uv_build"
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
-    "soundfile>=0.14.0",
 ]

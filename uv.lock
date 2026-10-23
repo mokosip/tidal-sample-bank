@@ -533,6 +533,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "python-osc" },
     { name = "scikit-learn" },
+    { name = "soundfile" },
     { name = "umap-learn" },
     { name = "uvicorn" },
 ]
@@ -541,7 +542,6 @@ dependencies = [
 dev = [
     { name = "httpx" },
     { name = "pytest" },
-    { name = "soundfile" },
 ]
 
 [package.metadata]
@@ -552,6 +552,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "python-osc", specifier = ">=1.10.2" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
+    { name = "soundfile", specifier = ">=0.14.0" },
     { name = "umap-learn", specifier = ">=0.5.12" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
@@ -560,7 +561,6 @@ requires-dist = [
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "soundfile", specifier = ">=0.14.0" },
 ]
 
 [[package]]
