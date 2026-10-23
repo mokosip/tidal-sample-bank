@@ -1,6 +1,7 @@
 """HTTP API wiring all backend modules together."""
 
 import logging
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,8 @@ from .layout import layout as compute_layout
 from .layout import place_new
 from .library import Sample, scan
 from .meta import MetaCorruptError, MetaStore
+from .staging import Staging
+from .trim import cut_wav
 from .usage import bank_usage
 
 log = logging.getLogger(__name__)
@@ -35,6 +38,23 @@ class PatchBody(BaseModel):
 
 class PlayBody(BaseModel):
     id: str
+
+
+class CommitFile(BaseModel):
+    token: str
+    action: str
+    start: float | None = None
+    end: float | None = None
+    fade: bool = True
+
+
+class CommitBody(BaseModel):
+    batch: str
+    bank: str
+    files: list[CommitFile]
+
+
+_ID = re.compile(r"[0-9a-f]{16}")
 
 
 class State:
@@ -104,7 +124,7 @@ class State:
 
 
 def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt=None,
-               background: bool = True, allowed_hosts=None) -> FastAPI:
+               background: bool = True, allowed_hosts=None, staging_dir=None) -> FastAPI:
     hosts = set(allowed_hosts) if allowed_hosts is not None else {
         f"localhost:{config.PORT}", f"127.0.0.1:{config.PORT}"}
     origins = {f"http://{h}" for h in hosts}
@@ -116,6 +136,14 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         dirt if dirt is not None else Dirt(),
     )
     st.rescan()
+
+    staging = Staging(staging_dir if staging_dir is not None else config.STAGING_DIR)
+    staging_error: str | None = None
+    try:
+        staging.purge()
+    except Exception as e:
+        log.exception("staging unavailable")
+        staging_error = str(e)
 
     def startup_analysis() -> None:
         try:
@@ -144,7 +172,7 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         # DNS-rebinding guard (Host) and CSRF guard (Origin on state-changing requests)
         origin = request.headers.get("origin")
         if request.headers.get("host") not in hosts or (
-                request.method in ("POST", "PATCH") and origin is not None and origin not in origins):
+                request.method in ("POST", "PATCH", "DELETE") and origin is not None and origin not in origins):
             return JSONResponse({"error": "forbidden"}, status_code=403)
         return await call_next(request)
 
@@ -208,9 +236,9 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         files = [(u.filename or "", await u.read()) for u in uploads]
         if not isinstance(bank_raw, str):
             return JSONResponse({"error": "missing bank name"}, status_code=400)
-        return await run_in_threadpool(_upload, bank_raw, files)
+        return await run_in_threadpool(_store, bank_raw, files)
 
-    def _upload(bank_raw: str, files: list[tuple[str, bytes]]):
+    def _store(bank_raw: str, files: list[tuple[str, bytes]]):
         try:
             bank = normalize_bank(bank_raw)
         except ValueError as e:
@@ -240,6 +268,102 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         loaded = st.dirt.load_bank(st.roots["own"] / bank, bank) if res.added else None
         return {"bank": bank, "added": res.added, "rejected": [list(r) for r in res.rejected],
                 "loaded": loaded}
+
+    def _unavailable():
+        return JSONResponse({"error": staging_error}, status_code=503) if staging_error else None
+
+    @app.post("/api/upload/stage")
+    async def stage(request: Request):
+        if (r := _unavailable()) is not None:
+            return r
+        form = await request.form()
+        uploads = [v for k, v in form.multi_items()
+                   if k in ("files", "files[]") and hasattr(v, "read")]
+        if not uploads:
+            return JSONResponse({"error": "no files"}, status_code=400)
+        files = [(u.filename or "", await u.read()) for u in uploads]
+        batch, staged, rejected = await run_in_threadpool(staging.create, files)
+        return {"batch": batch,
+                "files": [{"token": f.token, "filename": f.filename, "duration": f.duration}
+                          for f in staged],
+                "rejected": [list(r) for r in rejected]}
+
+    @app.get("/api/upload/stage/{batch}/{token}/source.wav")
+    def stage_source(batch: str, token: str):
+        if (r := _unavailable()) is not None:
+            return r
+        if not (_ID.fullmatch(batch) and _ID.fullmatch(token)):
+            return JSONResponse({"error": "unknown file"}, status_code=404)
+        try:
+            f = staging.get(batch, token)
+        except KeyError:
+            return JSONResponse({"error": "unknown file"}, status_code=404)
+        return FileResponse(f.source, media_type="audio/wav")
+
+    @app.delete("/api/upload/stage/{batch}", status_code=204)
+    def stage_cancel(batch: str):
+        if (r := _unavailable()) is not None:
+            return r
+        if _ID.fullmatch(batch):
+            staging.discard(batch)
+        return Response(status_code=204)
+
+    @app.post("/api/upload/commit")
+    async def commit(body: CommitBody):
+        if (r := _unavailable()) is not None:
+            return r
+        return await run_in_threadpool(_commit, body)
+
+    def _commit(body: CommitBody):
+        expired = JSONResponse({"error": "upload expired — drop the files again"}, status_code=410)
+        if not _ID.fullmatch(body.batch):
+            return expired
+        if not staging.has(body.batch):
+            return expired
+        try:
+            bank = normalize_bank(body.bank)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        files: list[tuple[str, bytes]] = []
+        rejected: list[list[str]] = []
+        seen: set[str] = set()
+        for item in body.files:
+            if item.action == "skip":
+                continue
+            try:
+                if not _ID.fullmatch(item.token):
+                    raise KeyError
+                staged = staging.get(body.batch, item.token)
+            except KeyError:
+                rejected.append([item.token, "unknown file"])
+                continue
+            if item.token in seen:
+                rejected.append([staged.filename, "listed twice"])
+                continue
+            seen.add(item.token)
+            if item.action == "whole":
+                files.append((staged.filename, staged.original.read_bytes()))
+            elif item.action == "range":
+                if item.start is None or item.end is None:
+                    rejected.append([staged.filename, "range needs start and end"])
+                    continue
+                try:
+                    cut = cut_wav(staged.source.read_bytes(), item.start, item.end, item.fade)
+                except ValueError as e:
+                    rejected.append([staged.filename, str(e)])
+                    continue
+                files.append((f"{staged.filename.rpartition('.')[0] or staged.filename}.wav", cut))
+            else:
+                rejected.append([staged.filename, f"unknown action: {item.action}"])
+        if not files:
+            staging.discard(body.batch)
+            return {"bank": bank, "added": [], "rejected": rejected, "loaded": None}
+        res = _store(body.bank, files)
+        if isinstance(res, JSONResponse):
+            return res  # 409 clash: batch is kept so the user can pick another name
+        res["rejected"] = res["rejected"] + rejected
+        staging.discard(body.batch)
+        return res
 
     @app.post("/api/rebuild-map", status_code=202)
     def rebuild_map():

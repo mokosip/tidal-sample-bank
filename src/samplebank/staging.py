@@ -89,6 +89,10 @@ class Staging:
         with self._lock:
             return self._files[(batch, token)]
 
+    def has(self, batch: str) -> bool:
+        with self._lock:
+            return any(k[0] == batch for k in self._files)
+
     def discard(self, batch: str) -> None:
         with self._lock:
             for key in [k for k in self._files if k[0] == batch]:
