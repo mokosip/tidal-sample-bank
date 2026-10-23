@@ -50,6 +50,7 @@ class State:
         self.samples: dict[str, Sample] = {}
         self.features: dict[str, Features] = {}
         self.analysing = False
+        self._rebuild = threading.Lock()  # single-flight guard for full layouts
 
     def rescan(self) -> None:
         found = scan(self.roots)
@@ -67,16 +68,32 @@ class State:
         self.cache.save()
         self.ensure_layout()
 
-    def full_layout(self) -> None:
-        with self.lock:
-            ids = [i for i in self.samples if i in self.features]
-            vectors = np.array([self.features[i].vector for i in ids], dtype=float)
-        if not ids:
-            return
-        xy = compute_layout(ids, vectors)
-        with self.lock:
-            self.cache.layout = {i: [x, y] for i, (x, y) in xy.items()}
-            self.cache.save()
+    def full_layout(self) -> bool:
+        """Recompute the whole map. Returns False if another rebuild is already running."""
+        if not self._rebuild.acquire(blocking=False):
+            return False
+        try:
+            with self.lock:
+                ids = [i for i in self.samples if i in self.features]
+                vectors = np.array([self.features[i].vector for i in ids], dtype=float)
+            if not ids:
+                return True
+            xy = compute_layout(ids, vectors)
+            with self.lock:
+                new = {i: [x, y] for i, (x, y) in xy.items()}
+                # samples analysed/placed while we were computing keep a position
+                late = [i for i in self.features if i not in new]
+                if late:
+                    known = {i: (x, y) for i, (x, y) in xy.items()}
+                    known_vectors = {i: np.array(self.features[i].vector) for i in known}
+                    for i in late:
+                        p = place_new(np.array(self.features[i].vector), known, known_vectors)
+                        new[i] = [p[0], p[1]]
+                self.cache.layout = new
+                self.cache.save()
+            return True
+        finally:
+            self._rebuild.release()
 
     def ensure_layout(self) -> None:
         with self.lock:
@@ -116,6 +133,7 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         st.dirt.close()
 
     app = FastAPI(lifespan=lifespan)
+    app.state.st = st
 
     @app.exception_handler(MetaCorruptError)
     async def _meta_corrupt(request, exc):
@@ -216,7 +234,8 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
                 st.full_layout()
             except Exception:
                 log.exception("map rebuild failed")
-        threading.Thread(target=run, daemon=True).start()
+        if not st._rebuild.locked():
+            threading.Thread(target=run, daemon=True).start()
         return Response(status_code=202)
 
     @app.get("/")

@@ -76,6 +76,7 @@ class AnalysisCache:
         self.path = Path(path)
         self._entries: dict[str, dict] = {}
         self._layout: dict[str, list[float]] = {}
+        self._lock = threading.RLock()  # guards _entries/_layout against concurrent callers
         try:
             data = json.loads(self.path.read_text())
             self._entries = data.get("entries", {})
@@ -91,29 +92,34 @@ class AnalysisCache:
 
     @layout.setter
     def layout(self, value: dict[str, list[float]]) -> None:
-        self._layout = value
+        with self._lock:
+            self._layout = value
 
     def get_or_compute(self, sample: Sample) -> Features | None:
         try:
             st = sample.path.stat()
             key = [st.st_mtime_ns, st.st_size]
-            hit = self._entries.get(sample.id)
+            with self._lock:
+                hit = self._entries.get(sample.id)
             if hit and hit["key"] == key:
                 return Features(**hit["features"])
             feats = analyse(sample.path)
         except Exception as e:  # unreadable/corrupt audio must never break a scan
             log.warning("cannot analyse %s: %s", sample.path, e)
             return None
-        self._entries[sample.id] = {"key": key, "features": asdict(feats)}
+        with self._lock:
+            self._entries[sample.id] = {"key": key, "features": asdict(feats)}
         return feats
 
     def save(self) -> None:
+        with self._lock:  # snapshot, so serialising never races with writers
+            snapshot = {"entries": dict(self._entries), "layout": dict(self._layout)}
         with _LOCK:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")
             try:
                 with os.fdopen(fd, "w") as f:
-                    json.dump({"entries": self._entries, "layout": self._layout}, f)
+                    json.dump(snapshot, f)
                 os.replace(tmp, self.path)
             except BaseException:
                 Path(tmp).unlink(missing_ok=True)

@@ -101,3 +101,49 @@ def test_layout_persists(tmp_path):
     cache.layout = {"own/t/a.wav": [0.1, 0.2]}
     cache.save()
     assert AnalysisCache(tmp_path / "cache.json").layout == {"own/t/a.wav": [0.1, 0.2]}
+
+
+def test_cache_thread_safe_get_and_save(tmp_path):
+    import threading
+
+    import numpy as np
+    import soundfile as sf
+
+    from samplebank.analysis import AnalysisCache
+    from samplebank.library import Sample
+
+    samples = []
+    for i in range(40):
+        p = tmp_path / f"s{i}.wav"
+        sf.write(p, np.random.default_rng(i).uniform(-0.5, 0.5, 2000), 22050, subtype="PCM_16")
+        samples.append(Sample(f"own/b/s{i}.wav", "own", "b", i, p, p.name))
+    cache = AnalysisCache(tmp_path / "c.json")
+    errors, stop = [], threading.Event()
+
+    def saver():
+        while not stop.is_set():
+            try:
+                cache.save()
+            except Exception as e:
+                errors.append(e)
+                return
+
+    def worker(chunk):
+        try:
+            for s in chunk:
+                cache.get_or_compute(s)
+        except Exception as e:
+            errors.append(e)
+
+    t = threading.Thread(target=saver)
+    t.start()
+    ws = [threading.Thread(target=worker, args=(samples[i::4],)) for i in range(4)]
+    [w.start() for w in ws]
+    [w.join() for w in ws]
+    stop.set()
+    t.join()
+    cache.save()
+    assert not errors
+    reloaded = AnalysisCache(tmp_path / "c.json")
+    assert all(reloaded.get_or_compute(s) is not None for s in samples)
+    assert set(reloaded._entries) == {s.id for s in samples}

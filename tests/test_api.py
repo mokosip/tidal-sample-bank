@@ -171,3 +171,40 @@ def test_lifespan_closes_dirt(env):
     with client:
         pass
     assert dirt.closed
+
+
+def test_rebuild_keeps_concurrent_placement_and_single_flight(env, monkeypatch):
+    import threading
+
+    import numpy as np
+
+    from samplebank import app as appmod
+
+    client, *_ = env
+    st = client.app.state.st
+    real, calls = appmod.compute_layout, []
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(ids, vectors):
+        calls.append(1)
+        entered.set()
+        release.wait(5)
+        return real(ids, vectors)
+
+    monkeypatch.setattr(appmod, "compute_layout", slow)
+    t = threading.Thread(target=st.full_layout)
+    t.start()
+    assert entered.wait(5)
+    # an upload lands mid-flight: new feature + placement
+    src = next(iter(st.features.values()))
+    with st.lock:
+        st.features["own/new/x.wav"] = src
+        st.cache.layout["own/new/x.wav"] = [0.1, 0.2]
+    assert client.post("/api/rebuild-map").status_code == 202
+    assert st.full_layout() is False
+    release.set()
+    t.join()
+    assert len(calls) == 1
+    xy = st.cache.layout["own/new/x.wav"]
+    assert xy is not None and all(0 <= v <= 1 for v in xy)
+    assert set(st.features) <= set(st.cache.layout)
