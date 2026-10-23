@@ -32,6 +32,9 @@ export function createTrimView(container, { url, duration, selection = null, onC
   const stateEl = el("span", "trim-state", "loading…");
   const selEl = el("span", "trim-sel");
   const lenEl = el("span", "trim-dim");
+  // one non-wrapping, fixed-width unit so the header never reflows while dragging
+  const readout = el("span", "trim-readout");
+  readout.append(selEl, " ", lenEl);
   const fadeEl = el("span", "trim-fade");
   const zoomBtn = el("button", "modal-btn", "zoom to selection");
   const wholeBtn = el("button", "modal-btn", "whole file");
@@ -39,7 +42,9 @@ export function createTrimView(container, { url, duration, selection = null, onC
     b.type = "button";
     b.tabIndex = -1;
   }
-  head.append(stateEl, el("span", "trim-dim", "selection"), selEl, lenEl, fadeEl, el("span", "trim-spacer"), zoomBtn, wholeBtn);
+  const tools = el("span", "trim-tools"); // the buttons wrap as one unit, never one by one
+  tools.append(zoomBtn, wholeBtn);
+  head.append(stateEl, el("span", "trim-dim", "selection"), readout, fadeEl, tools);
   const wave = el("canvas", "trim-wave");
   const ruler = el("div", "trim-ruler");
   const mini = el("canvas", "trim-mini");
@@ -60,7 +65,7 @@ export function createTrimView(container, { url, duration, selection = null, onC
   let ctx = null;
   let decoded = null;
   let channels = []; // Float32Array per channel of `decoded`
-  let src = null; // current AudioBufferSourceNode
+  let src = null; // current voice {node: AudioBufferSourceNode, gain: GainNode}
   let play = null; // {mode: "loop"|"play", t0 (ctx time of buffer pos 0), from (file s), len (s)}
   let loopBuf = null;
   let destroyed = false;
@@ -72,15 +77,44 @@ export function createTrimView(container, { url, duration, selection = null, onC
   const abort = new AbortController();
 
   // ---------- audio ----------
-  function stopSource() {
+  // Playback de-click ramp on every voice start/stop/swap. This is a playback envelope on a GainNode only;
+  // the R1 edge fades baked into the loop buffer (identical to the server cut) are not touched.
+  const RAMP_S = 0.005;
+
+  // Retire the current voice: ramp its gain to 0 over RAMP_S, then stop it (immediately when ramp = false).
+  function stopSource(ramp = true) {
     if (!src) return;
-    src.onended = null;
-    try {
-      src.stop();
-    } catch {}
-    src.disconnect();
+    const { node, gain } = src;
     src = null;
     play = null;
+    node.onended = () => {
+      node.disconnect();
+      gain.disconnect();
+    };
+    const now = ctx.currentTime;
+    if (ramp) {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + RAMP_S);
+    }
+    try {
+      node.stop(ramp ? now + RAMP_S : 0);
+    } catch {}
+  }
+
+  // New voice through its own GainNode, ramping 0 -> 1 over RAMP_S. Called right after stopSource(),
+  // so the old voice ramps down while this one ramps up: a 5 ms crossfade.
+  function startVoice(buffer, loop, offset) {
+    const node = ctx.createBufferSource();
+    node.buffer = buffer;
+    node.loop = loop; // for the loop: the whole buffer is the loop (gapless, no loopStart/loopEnd)
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(1, now + RAMP_S);
+    node.connect(gain).connect(ctx.destination);
+    node.start(now, offset);
+    return { node, gain };
   }
 
   // Position (file seconds) of what is audible right now, or null.
@@ -111,11 +145,7 @@ export function createTrimView(container, { url, duration, selection = null, onC
     const rate = decoded.sampleRate;
     const len = (b - a) / rate;
     const off = Math.min(Math.max(0, offset), len - 1 / rate);
-    src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.loop = true; // the whole buffer is the loop: gapless, no loopStart/loopEnd
-    src.connect(ctx.destination);
-    src.start(0, off);
+    src = startVoice(buf, true, off);
     play = { mode: "loop", t0: ctx.currentTime - off, from: a / rate, len };
     tick();
   }
@@ -124,18 +154,17 @@ export function createTrimView(container, { url, duration, selection = null, onC
     if (!decoded) return;
     stopSource();
     ctx.resume();
-    const node = ctx.createBufferSource();
-    node.buffer = decoded;
-    node.connect(ctx.destination);
-    node.onended = () => {
-      if (src === node) {
+    const voice = startVoice(decoded, false, t);
+    voice.node.onended = () => {
+      voice.node.disconnect();
+      voice.gain.disconnect();
+      if (src === voice) {
         src = null;
         play = null;
         render();
       }
     };
-    node.start(0, t);
-    src = node;
+    src = voice;
     play = { mode: "play", t0: ctx.currentTime, from: t, len: dur - t };
     tick();
   }
@@ -436,7 +465,7 @@ export function createTrimView(container, { url, duration, selection = null, onC
       abort.abort();
       clearTimeout(rebuildTimer);
       cancelAnimationFrame(raf);
-      stopSource();
+      stopSource(false); // the context closes right after
       ro.disconnect();
       root.removeEventListener("keydown", onKey);
       wave.removeEventListener("pointerdown", onDown);
