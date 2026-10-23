@@ -1,12 +1,16 @@
+import io
 import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import soundfile as sf
+
 from . import config
 from .library import bank_names
 
+_CONVERTIBLE = {"mp3", "flac", "ogg", "oga", "opus", "m4a", "aac", "wma"}
 _VALID = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -49,9 +53,11 @@ def _convert(data: bytes, ext: str) -> bytes:
         src.write_bytes(data)
         try:
             r = subprocess.run(
-                ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-c:a", "pcm_s16le", str(dst)],
-                capture_output=True, text=True,
+                ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(src), "-c:a", "pcm_s16le", str(dst)],
+                capture_output=True, text=True, timeout=60,
             )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("conversion timed out")
         except FileNotFoundError:
             raise RuntimeError("ffmpeg not installed")
         if r.returncode != 0 or not dst.exists():
@@ -91,14 +97,20 @@ def ingest(files: list[tuple[str, bytes]], bank: str, roots) -> IngestResult:
         ext_l = ext.lower()
         try:
             if ext_l in config.EXTS:
+                try:
+                    sf.info(io.BytesIO(data))
+                except Exception:
+                    raise RuntimeError("not a readable audio file")
                 out = data
-            else:
+            elif ext_l in _CONVERTIBLE:
                 out = _convert(data, ext_l)
                 ext_l = "wav"
-        except RuntimeError as e:
+            else:
+                raise RuntimeError("unsupported file type")
+            final = _free_name(folder, stem, ext_l if ext_l == "wav" else ext)
+            (folder / final).write_bytes(out)
+        except (RuntimeError, OSError, ValueError) as e:
             res.rejected.append((base, str(e)))
             continue
-        final = _free_name(folder, stem, ext_l if ext_l == "wav" or ext.lower() != ext_l else ext)
-        (folder / final).write_bytes(out)
         res.added.append(final)
     return res

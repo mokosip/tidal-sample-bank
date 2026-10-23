@@ -111,3 +111,35 @@ def test_path_traversal_sanitised(roots, tmp_path):
 def test_invalid_bank_raises(roots):
     with pytest.raises(ValueError):
         ingest([("a.wav", b"x")], "bd", roots)
+
+
+def test_fake_wav_rejected(roots, tmp_path):
+    res = ingest([("bad.wav", b"hello"), ("ok.wav", wav_bytes(tmp_path))], "newbank", roots)
+    assert res.added == ["ok.wav"]
+    assert res.rejected[0][0] == "bad.wav"
+    assert not (roots["own"] / "newbank" / "bad.wav").exists()
+
+
+def test_ffmpeg_timeout_rejected(roots, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired(a[0], 60)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    res = ingest([("a.mp3", b"x"), ("ok.wav", wav_bytes(tmp_path))], "newbank", roots)
+    assert res.added == ["ok.wav"]
+    assert res.rejected == [("a.mp3", "conversion timed out")]
+
+
+def test_unsupported_ext_never_calls_ffmpeg(roots, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+    res = ingest([("x.m3u8", b"#EXTM3U"), ("notes.txt", b"hi")], "newbank", roots)
+    assert calls == [] and res.added == []
+    assert [r for _, r in res.rejected] == ["unsupported file type"] * 2
+
+
+@pytest.mark.parametrize("name", ["a\x00b.wav", "a" * 300 + ".wav"])
+def test_bad_names_do_not_crash_batch(roots, tmp_path, name):
+    res = ingest([(name, wav_bytes(tmp_path)), ("ok.wav", wav_bytes(tmp_path))], "newbank", roots)
+    assert res.added == ["ok.wav"]
+    assert len(res.rejected) == 1
