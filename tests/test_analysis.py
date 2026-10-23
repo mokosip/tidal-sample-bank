@@ -49,11 +49,14 @@ def test_ultra_short_10ms(tmp_path):
 
 
 def test_long_file_reads_10s(tmp_path):
-    p = write(tmp_path / "l.wav", sine(220, 60))
+    # 10 s of digital silence, then 50 s of loud tone: only the silent head may be analysed
+    p = write(tmp_path / "l.wav", np.concatenate([np.zeros(10 * SR), sine(220, 50)]))
     t0 = time.perf_counter()
     f = analyse(p)
     assert time.perf_counter() - t0 < 3
     assert f.duration == pytest.approx(60, abs=0.01)
+    assert f.rms == 0
+    assert f.peaks == [0.0] * 64
 
 
 def test_attack_is_time_of_rms_peak(tmp_path):
