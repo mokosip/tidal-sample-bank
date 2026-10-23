@@ -98,7 +98,7 @@ def test_discard_and_purge(tmp_path):
     assert s2[0].source.exists()
     Staging(root).purge()  # leftovers from a previous run
     assert not s2[0].source.exists()
-    assert root.exists() and list(root.iterdir()) == []
+    assert [p.name for p in root.iterdir()] == [".samplebank-staging"]
 
 
 def test_unknown_token_keyerror(tmp_path):
@@ -122,3 +122,45 @@ def test_long_file_fast(tmp_path):
 def test_staging_dir_not_under_roots():
     for root in config.ROOTS.values():
         assert not config.STAGING_DIR.is_relative_to(root.expanduser())
+
+
+def test_purge_refuses_unmarked_nonempty_root(tmp_path):
+    root = tmp_path / "samples"
+    (root / "kicks").mkdir(parents=True)
+    (root / "kicks" / "a.wav").write_bytes(b"x")
+    (root / "notes.txt").write_text("keep")
+    with pytest.raises(RuntimeError, match=str(root)):
+        Staging(root).purge()
+    assert (root / "kicks" / "a.wav").read_bytes() == b"x"
+    assert (root / "notes.txt").read_text() == "keep"
+    assert not (root / ".samplebank-staging").exists()
+
+
+def test_purge_refuses_symlinked_root(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "f.txt").write_text("keep")
+    link = tmp_path / "link"
+    link.symlink_to(target, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="symlink"):
+        Staging(link).purge()
+    assert (target / "f.txt").read_text() == "keep"
+    assert list(target.iterdir()) == [target / "f.txt"]
+
+
+def test_fresh_root_gets_marker_and_purge_keeps_it(tmp_path):
+    root = tmp_path / "stage"
+    st = Staging(root)
+    st.purge()
+    assert (root / ".samplebank-staging").exists()
+    _, staged, _ = st.create([("a.wav", wav(0.1))])
+    st.purge()
+    assert not staged[0].source.exists()
+    assert [p.name for p in root.iterdir()] == [".samplebank-staging"]
+
+
+def test_empty_existing_root_is_adopted(tmp_path):
+    root = tmp_path / "stage"
+    root.mkdir()
+    Staging(root).purge()
+    assert (root / ".samplebank-staging").exists()

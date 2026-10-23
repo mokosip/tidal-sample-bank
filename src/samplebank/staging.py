@@ -9,6 +9,8 @@ import soundfile as sf
 
 from .ingest import _basename, decode_to_wav
 
+_MARKER = ".samplebank-staging"
+
 
 @dataclass
 class StagedFile:
@@ -25,11 +27,30 @@ class Staging:
         self._lock = threading.Lock()
         self._files: dict[tuple[str, str], StagedFile] = {}
 
+    def _ensure_root(self) -> None:
+        """Only ever manage a dir that is ours: marker present, or new/empty."""
+        root = self.root
+        if root.is_symlink():
+            raise RuntimeError(f"refusing to use staging dir {root}: it is a symlink")
+        marker = root / _MARKER
+        if root.exists() and not marker.exists() and any(root.iterdir()):
+            raise RuntimeError(
+                f"refusing to use staging dir {root}: not empty and has no {_MARKER} marker "
+                "(check SAMPLEBANK_STAGING_DIR)"
+            )
+        root.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+
     def purge(self) -> None:
         with self._lock:
-            if self.root.exists():
-                shutil.rmtree(self.root)
-            self.root.mkdir(parents=True, exist_ok=True)
+            self._ensure_root()
+            for p in self.root.iterdir():
+                if p.name == _MARKER:
+                    continue
+                if p.is_dir() and not p.is_symlink():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
             self._files.clear()
 
     def create(self, files: list[tuple[str, bytes]]):
@@ -37,6 +58,7 @@ class Staging:
         staged: list[StagedFile] = []
         rejected: list[tuple[str, str]] = []
         with self._lock:
+            self._ensure_root()
             for filename, data in files:
                 base = _basename(filename)
                 if not base or base.startswith("."):
