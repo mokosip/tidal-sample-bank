@@ -44,7 +44,7 @@ def env(tmp_path):
     (tidal / "s.tidal").write_text('d1 $ s "bd*2"\n')
     dirt = FakeDirt()
     app = create_app(roots=roots, meta_path=tmp_path / "meta.json", cache_path=tmp_path / "cache.json",
-                     tidal_dir=tidal, dirt=dirt, background=False)
+                     tidal_dir=tidal, dirt=dirt, background=False, allowed_hosts={"testserver"})
     return TestClient(app), dirt, roots, tmp_path
 
 
@@ -238,3 +238,45 @@ def test_status_rebuilding_while_layout_runs(env, monkeypatch):
         release.set()
         t.join()
     assert client.get("/api/status").json()["rebuilding"] is False
+
+
+def test_upload_load_count_zero_passes_through_distinct_from_null(env):
+    client, dirt, roots, tmp_path = env
+    files = [("files[]", ("a.wav", wav_payload(tmp_path, "a.wav", 400), "audio/wav"))]
+    dirt.loaded = 0  # SuperDirt answered but loaded nothing (e.g. bank named like a synth)
+    zero = client.post("/api/upload", data={"bank": "clash_a"}, files=files).json()["loaded"]
+    dirt.up = False  # SuperDirt not reachable
+    null = client.post("/api/upload", data={"bank": "clash_b"}, files=files).json()["loaded"]
+    assert zero == 0 and zero is not None
+    assert null is None
+
+
+def test_foreign_origin_rejected_on_state_changes(env):
+    client, dirt, *_ = env
+    sid = "dirt/bd/a.wav"
+    for evil in ("http://evil.example", "http://localhost:9999"):
+        assert client.post("/api/play", json={"id": sid}, headers={"Origin": evil}).status_code == 403
+        assert client.patch(f"/api/samples/{sid}", json={"star": True}, headers={"Origin": evil}).status_code == 403
+    assert dirt.played == []
+    assert by_id(client)[sid]["star"] is False
+
+
+def test_good_or_missing_origin_ok(env):
+    client, dirt, *_ = env
+    sid = "dirt/bd/a.wav"
+    assert client.post("/api/play", json={"id": sid}, headers={"Origin": "http://testserver"}).status_code == 204
+    assert client.post("/api/play", json={"id": sid}).status_code == 204  # curl / non-browser
+    assert client.get("/api/status", headers={"Origin": "http://evil.example"}).status_code == 200  # reads are not CSRF
+
+
+def test_default_hosts_come_from_config_and_reject_rebinding(tmp_path):
+    app = create_app(roots={k: tmp_path / k for k in ("dirt", "dub", "own")}, meta_path=tmp_path / "m.json",
+                     cache_path=tmp_path / "c.json", tidal_dir=tmp_path, dirt=FakeDirt(), background=False)
+    from samplebank import config
+
+    for host in (f"localhost:{config.PORT}", f"127.0.0.1:{config.PORT}"):
+        assert TestClient(app, base_url=f"http://{host}").get("/api/status").status_code == 200
+    assert TestClient(app, base_url="http://evil.example:57150").get("/api/status").status_code == 403
+    ok = TestClient(app, base_url=f"http://localhost:{config.PORT}")
+    assert ok.post("/api/play", json={"id": "x"}, headers={"Origin": "http://127.0.0.1:57150"}).status_code == 404
+    assert ok.post("/api/play", json={"id": "x"}, headers={"Origin": "http://evil.example"}).status_code == 403

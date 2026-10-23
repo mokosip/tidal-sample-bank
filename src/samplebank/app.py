@@ -104,7 +104,10 @@ class State:
 
 
 def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt=None,
-               background: bool = True) -> FastAPI:
+               background: bool = True, allowed_hosts=None) -> FastAPI:
+    hosts = set(allowed_hosts) if allowed_hosts is not None else {
+        f"localhost:{config.PORT}", f"127.0.0.1:{config.PORT}"}
+    origins = {f"http://{h}" for h in hosts}
     st = State(
         roots if roots is not None else config.ROOTS,
         meta_path if meta_path is not None else config.META_PATH,
@@ -135,6 +138,15 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
 
     app = FastAPI(lifespan=lifespan)
     app.state.st = st
+
+    @app.middleware("http")
+    async def local_only(request: Request, call_next):
+        # DNS-rebinding guard (Host) and CSRF guard (Origin on state-changing requests)
+        origin = request.headers.get("origin")
+        if request.headers.get("host") not in hosts or (
+                request.method in ("POST", "PATCH") and origin is not None and origin not in origins):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return await call_next(request)
 
     @app.exception_handler(MetaCorruptError)
     async def _meta_corrupt(request, exc):
