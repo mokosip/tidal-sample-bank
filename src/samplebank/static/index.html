@@ -1,3 +1,47 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>samplebank</title></head>
-<body><p>samplebank</p></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>samplebank</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">samplebank</div>
+    <nav class="views">
+      <button data-view="map" title="map view (m)"><kbd>m</kbd>Map</button>
+      <button data-view="list" title="list view (l)"><kbd>l</kbd>List</button>
+    </nav>
+    <input id="search" type="search" placeholder="/  search bank, file, tag" autocomplete="off" spellcheck="false">
+    <span id="count" class="count"></span>
+    <span id="status" class="status"></span>
+  </header>
+  <div id="banner" class="banner" hidden>SuperDirt not reachable — previews are silent. Start SuperDirt in SuperCollider; this page reconnects by itself.</div>
+  <div class="filters">
+    <div id="filter-types" class="chips"></div>
+    <div id="filter-tags" class="chips"></div>
+  </div>
+  <main>
+    <section id="view" class="view"></section>
+    <aside id="inspector"></aside>
+  </main>
+  <footer class="keys">
+    <span><kbd>j</kbd><kbd>k</kbd> move + play</span>
+    <span><kbd>space</kbd> replay</span>
+    <span><kbd>y</kbd> copy snippet</span>
+    <span><kbd>f</kbd> star</span>
+    <span><kbd>t</kbd> tags</span>
+    <span><kbd>1</kbd>…<kbd>0</kbd><kbd>-</kbd> set type</span>
+    <span><kbd>/</kbd> search</span>
+    <span><kbd>m</kbd><kbd>l</kbd> map / list</span>
+  </footer>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module">
+    import { start } from "/static/app.js";
+    import "/static/list.js";
+    start();
+  </script>
+</body>
+</html>
