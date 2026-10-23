@@ -75,6 +75,37 @@ def _check_frames(data: bytes, unreadable: str) -> None:
         raise RuntimeError("no audio frames")
 
 
+_WAV_SUBTYPES = {"PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"}
+
+
+def _aiff_to_wav(data: bytes) -> bytes:
+    try:
+        info = sf.info(io.BytesIO(data))
+        audio, sr = sf.read(io.BytesIO(data), dtype="float64", always_2d=True)
+    except Exception:
+        raise RuntimeError("not a readable audio file")
+    subtype = info.subtype if info.subtype in _WAV_SUBTYPES else "PCM_16"
+    out = io.BytesIO()
+    sf.write(out, audio, sr, format="WAV", subtype=subtype)
+    return out.getvalue()
+
+
+def decode_to_wav(filename: str, data: bytes) -> bytes:
+    """WAV bytes for any supported upload; same rejection reasons as ingest()."""
+    ext = _basename(filename).rpartition(".")[2].lower()
+    if ext == "wav":
+        _check_frames(data, "not a readable audio file")
+        return data
+    if ext in config.EXTS:
+        _check_frames(data, "not a readable audio file")
+        return _aiff_to_wav(data)
+    if ext in _CONVERTIBLE:
+        out = _convert(data, ext)
+        _check_frames(out, "not a decodable audio file")
+        return out
+    raise RuntimeError("unsupported file type")
+
+
 def _free_name(folder: Path, stem: str, ext: str) -> str:
     name = f"{stem}.{ext}"
     i = 2

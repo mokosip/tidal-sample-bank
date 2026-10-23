@@ -1,4 +1,5 @@
 import os
+import tempfile
 from pathlib import Path
 
 TIDAL_DIR = Path(os.environ.get("SAMPLEBANK_TIDAL_DIR", "~/tidal")).expanduser()
@@ -21,6 +22,10 @@ META_PATH = Path(
 ).expanduser()
 CACHE_PATH = Path(
     os.environ.get("SAMPLEBANK_CACHE_PATH", ROOTS["own"] / ".samplebank-cache.json")
+).expanduser()
+
+STAGING_DIR = Path(
+    os.environ.get("SAMPLEBANK_STAGING_DIR", Path(tempfile.gettempdir()) / "samplebank-staging")
 ).expanduser()
 
 DIRT_ADDR = ("127.0.0.1", 57120)
