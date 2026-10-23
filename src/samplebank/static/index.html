@@ -17,6 +17,8 @@
     <input id="search" type="search" placeholder="/  search bank, file, tag" autocomplete="off" spellcheck="false">
     <span id="count" class="count"></span>
     <span id="status" class="status"></span>
+    <button id="upload-pick" class="add-btn" title="add samples — or drop files/folders anywhere">+ add</button>
+    <input id="upload-input" type="file" multiple hidden>
   </header>
   <div id="banner" class="banner" hidden>SuperDirt not reachable — previews are silent. Start SuperDirt in SuperCollider; this page reconnects by itself.</div>
   <div class="filters">
@@ -38,10 +40,31 @@
     <span><kbd>m</kbd><kbd>l</kbd> map / list</span>
   </footer>
   <div id="toast" class="toast" hidden></div>
+  <div id="drop" class="drop" hidden><div class="drop-box">drop to add samples<small>files or folders · wav aif mp3 flac ogg …</small></div></div>
+  <div id="upload-modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+      <div id="upload-title" class="modal-title"></div>
+      <div id="upload-files" class="modal-files"></div>
+      <label class="insp-label" for="upload-bank">bank</label>
+      <input id="upload-bank" class="modal-input" list="upload-banks" autocomplete="off" spellcheck="false">
+      <datalist id="upload-banks"></datalist>
+      <div id="upload-preview" class="modal-preview"></div>
+      <div class="modal-row">
+        <span id="upload-msg" class="modal-msg"></span>
+        <button id="upload-suggest" class="modal-btn hot" hidden></button>
+      </div>
+      <div class="modal-row end">
+        <button id="upload-cancel" class="modal-btn"><kbd>esc</kbd>cancel</button>
+        <button id="upload-ok" class="modal-btn hot"><kbd>⏎</kbd>add</button>
+      </div>
+    </div>
+  </div>
   <script type="module">
     import { start } from "/static/app.js";
     import "/static/list.js";
     import "/static/map.js";
+    import { initUpload } from "/static/upload.js";
+    initUpload();
     start();
   </script>
 </body>
