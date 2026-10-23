@@ -62,12 +62,23 @@ const SAME_S = 1e-7;
 
 // One /api/upload/commit entry. choice: undefined (never trimmed -> whole) or
 // {action: "range"|"whole"|"skip", sel: {start, end}, fade}. A range covering the whole file
-// is sent as "whole" so the file is stored as is instead of being re-encoded.
+// is sent as "whole" (stored as is) only when fade is off: with fade on it was heard with 5 ms
+// fades, which "whole" never applies, so it stays a range.
 export function commitItem(file, choice) {
   const { token } = file;
   if (!choice || choice.action === "whole") return { token, action: "whole" };
   if (choice.action === "skip") return { token, action: "skip" };
   const { start, end } = choice.sel;
-  if (start <= SAME_S && Math.abs(end - file.duration) <= SAME_S) return { token, action: "whole" };
+  if (!choice.fade && start <= SAME_S && Math.abs(end - file.duration) <= SAME_S) return { token, action: "whole" };
   return { token, action: "range", start, end, fade: !!choice.fade };
+}
+
+// Index in `queue` of the next step still undecided: forward from `at` first, then wrapping to
+// earlier ones; -1 when every step is decided. queue: step keys, decided: Set/Map of decided keys.
+export function nextPending(queue, decided, at) {
+  for (let k = 1; k <= queue.length; k++) {
+    const p = (at + k) % queue.length;
+    if (!decided.has(queue[p])) return p;
+  }
+  return -1;
 }

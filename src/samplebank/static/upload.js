@@ -3,7 +3,7 @@
 // (loop a part in the browser, keep only that), then commits (POST /api/upload/commit). Afterwards:
 // refetch and select the first added sample.
 import { state, loadSamples, select, setFilter, matches, toast } from "./app.js";
-import { normalize, VALID, hidden, grab, collect, autoTrim, commitItem, fmtDur } from "./dropwalk.js";
+import { normalize, VALID, hidden, grab, collect, autoTrim, commitItem, fmtDur, nextPending } from "./dropwalk.js";
 import { createTrimView } from "./trimview.js";
 
 const $ = (id) => document.getElementById(id);
@@ -290,7 +290,8 @@ function goTrim(p) {
 function decide(action) {
   if (step !== "trim" || !view) return;
   actions.set(fileAt(at).token, action);
-  if (at + 1 < queue.length) goTrim(at + 1);
+  const p = nextPending(queue.map((i) => batch.files[i].token), actions, at);
+  if (p >= 0) goTrim(p); // openTrim can insert a file before the one being decided: never commit with steps left
   else commit();
 }
 

@@ -48,7 +48,7 @@ test("grab falls back to getAsFile, then to dt.files", () => {
   assert.deepEqual(grab({ items: { length: 0 }, files: [f] }), { entries: [], loose: [f] });
 });
 
-import { AUTO_TRIM_S, autoTrim, commitItem, fmtDur } from "../../src/samplebank/static/dropwalk.js";
+import { AUTO_TRIM_S, autoTrim, commitItem, fmtDur, nextPending } from "../../src/samplebank/static/dropwalk.js";
 
 test("trim step opens automatically only above 4 s", () => {
   assert.equal(AUTO_TRIM_S, 4);
@@ -68,13 +68,48 @@ test("commitItem: no choice = whole, range kept, full-file range sent as whole",
   assert.deepEqual(commitItem(f, { action: "range", sel: { start: 1, end: 2 }, fade: false }).fade, false);
   // the trim view's whole-file selection is frame-snapped: end = round(dur*sr)/sr, equal to duration within a frame
   const g = { token: "u", duration: 1764000 / 44100 };
-  assert.deepEqual(commitItem(g, { action: "range", sel: { start: 0, end: 1764000 / 44100 }, fade: true }), { token: "u", action: "whole" });
-  assert.equal(commitItem(g, { action: "range", sel: { start: 0, end: 1763999 / 44100 }, fade: true }).action, "range");
-  assert.equal(commitItem(g, { action: "range", sel: { start: 1 / 44100, end: 1764000 / 44100 }, fade: true }).action, "range");
+  const all = { start: 0, end: 1764000 / 44100 };
+  // whole-file selection with fade off was heard unfaded -> stored as is
+  assert.deepEqual(commitItem(g, { action: "range", sel: all, fade: false }), { token: "u", action: "whole" });
+  // with fade on it was heard with 5 ms fades -> must be saved as a range with fades
+  assert.deepEqual(commitItem(g, { action: "range", sel: all, fade: true }), { token: "u", action: "range", start: 0, end: all.end, fade: true });
+  assert.equal(commitItem(g, { action: "range", sel: { start: 0, end: 1763999 / 44100 }, fade: false }).action, "range");
+  assert.equal(commitItem(g, { action: "range", sel: { start: 1 / 44100, end: 1764000 / 44100 }, fade: false }).action, "range");
 });
 
 test("fmtDur", () => {
   assert.equal(fmtDur(40.3), "40.3 s");
   assert.equal(fmtDur(1), "1.0 s");
   assert.equal(fmtDur(0.04), "0.04 s");
+});
+
+test("nextPending: next undecided step after `at`, then wrap to earlier ones, -1 when done", () => {
+  const q = ["a", "b", "c", "d"];
+  assert.equal(nextPending(q, new Set(), 0), 1);
+  assert.equal(nextPending(q, new Set(["b"]), 0), 2);
+  // forward order first, even when an earlier step is also pending
+  assert.equal(nextPending(q, new Set(["a", "c"]), 1), 3);
+  // wrap to earlier ones
+  assert.equal(nextPending(q, new Set(["c", "d"]), 3), 0);
+  assert.equal(nextPending(q, new Set(["a", "c", "d"]), 2), 1);
+  // all decided -> commit
+  assert.equal(nextPending(q, new Set(q), 2), -1);
+  assert.equal(nextPending(["a"], new Set(["a"]), 0), -1);
+  assert.equal(nextPending([], new Set(), 0), -1);
+});
+
+test("nextPending: drop [40 s, 2 s], trim the short one first -> the long one comes next", () => {
+  // queue after openTrim(1): [long, short], at = 1 (the short one), short just decided
+  assert.equal(nextPending(["long", "short"], new Set(["short"]), 1), 0);
+  assert.equal(nextPending(["long", "short"], new Set(["short", "long"]), 0), -1);
+});
+
+test("nextPending: after back-navigation, decided steps are skipped", () => {
+  const q = ["a", "b", "c"];
+  // all decided, user went back to a and re-decides: nothing pending
+  assert.equal(nextPending(q, new Set(q), 0), -1);
+  // went back to b (a decided, c undecided): re-deciding b goes on to c
+  assert.equal(nextPending(q, new Set(["a", "b"]), 1), 2);
+  // went back from c to a while b is still undecided
+  assert.equal(nextPending(q, new Set(["a"]), 0), 1);
 });
