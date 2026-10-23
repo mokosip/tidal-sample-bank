@@ -161,7 +161,7 @@ def test_delete_discards(env):
     f = s["files"][0]
     assert client.delete(f"/api/upload/stage/{s['batch']}").status_code == 204
     assert client.delete(f"/api/upload/stage/{s['batch']}").status_code == 204
-    assert client.delete("/api/upload/stage/zzz").status_code == 204 or True
+    assert client.delete("/api/upload/stage/zzz").status_code == 204
     assert client.get(f"/api/upload/stage/{s['batch']}/{f['token']}/source.wav").status_code == 404
     assert commit(client, s["batch"], "b", [{"token": f["token"], "action": "whole"}]).status_code == 410
 
@@ -209,3 +209,52 @@ def test_old_upload_still_works(env):
     client, *_ = env
     r = client.post("/api/upload", data={"bank": "old"}, files=[("files[]", ("o.wav", wav_bytes(), "audio/wav"))])
     assert r.status_code == 200 and r.json()["added"] == ["o.wav"]
+
+
+def test_concurrent_commits_one_wins(env, monkeypatch):
+    import threading
+    import time
+
+    import samplebank.app as appmod
+    client, dirt, roots = env
+    s = stage(client, ("take.wav", wav_bytes(), "audio/wav"))
+    item = [{"token": s["files"][0]["token"], "action": "range", "start": 0.1, "end": 0.5}]
+    real = appmod.cut_wav
+
+    def slow(*a, **k):
+        time.sleep(0.4)
+        return real(*a, **k)
+    monkeypatch.setattr(appmod, "cut_wav", slow)
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(commit(client, s["batch"], "b", item)))
+          for _ in range(2)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert sorted(r.status_code for r in out) == [200, 410]
+    assert sorted(p.name for p in (roots["own"] / "b").iterdir()) == ["take.wav"]
+    assert len(dirt.loads) == 1
+
+
+def test_delete_during_commit_no_500(env, monkeypatch):
+    import threading
+    import time
+
+    import samplebank.app as appmod
+    client, _, roots = env
+    s = stage(client, ("take.wav", wav_bytes(), "audio/wav"))
+    item = [{"token": s["files"][0]["token"], "action": "range", "start": 0.1, "end": 0.5}]
+    real = appmod.cut_wav
+
+    def slow(*a, **k):
+        time.sleep(0.4)
+        return real(*a, **k)
+    monkeypatch.setattr(appmod, "cut_wav", slow)
+    out = []
+    t = threading.Thread(target=lambda: out.append(commit(client, s["batch"], "b", item)))
+    t.start()
+    time.sleep(0.1)
+    assert client.delete(f"/api/upload/stage/{s['batch']}").status_code == 204
+    t.join()
+    assert out[0].status_code == 200 and out[0].json()["added"] == ["take.wav"]

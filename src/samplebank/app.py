@@ -139,6 +139,8 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
 
     staging = Staging(staging_dir if staging_dir is not None else config.STAGING_DIR)
     staging_error: str | None = None
+    claims: set[str] = set()  # batches with a commit in flight
+    claims_lock = threading.Lock()
     try:
         staging.purge()
     except Exception as e:
@@ -305,7 +307,9 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         if (r := _unavailable()) is not None:
             return r
         if _ID.fullmatch(batch):
-            staging.discard(batch)
+            with claims_lock:
+                if batch not in claims:  # a running commit discards the batch itself
+                    staging.discard(batch)
         return Response(status_code=204)
 
     @app.post("/api/upload/commit")
@@ -318,8 +322,19 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
         expired = JSONResponse({"error": "upload expired — drop the files again"}, status_code=410)
         if not _ID.fullmatch(body.batch):
             return expired
-        if not staging.has(body.batch):
+        with claims_lock:
+            if body.batch in claims or not staging.has(body.batch):
+                return expired
+            claims.add(body.batch)
+        try:
+            return _commit_claimed(body, expired)
+        except FileNotFoundError:
             return expired
+        finally:
+            with claims_lock:
+                claims.discard(body.batch)
+
+    def _commit_claimed(body: CommitBody, expired):
         try:
             bank = normalize_bank(body.bank)
         except ValueError as e:
