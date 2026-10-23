@@ -26,6 +26,10 @@ NAME_CASES = [
     ("nature", "texture"), ("birds", "texture"), ("wind", "texture"),
     ("bassdm", "bass"), ("808sd", "snare"), ("808cy", "hat"), ("808mt", "perc"),
     ("speech", "voice"), ("moog", "tonal"), ("cb", "perc"),
+    ("invaders", "fx"), ("cosmicg", "fx"), ("tacscan", "fx"), ("space", "fx"), ("subroc3d", "fx"),
+    ("incoming", "fx"), ("bleep", "fx"), ("blip", "fx"), ("feelfx", "fx"),
+    ("dr", "perc"), ("dr_few", "perc"), ("dr2", "perc"), ("dr55", "perc"), ("gretsch", "perc"),
+    ("stab", "tonal"),
     ("busy", "other"), ("snow", "other"), ("shoe", "other"),
 ]
 

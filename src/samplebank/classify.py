@@ -16,6 +16,9 @@ _NAME_RULES: list[tuple[re.Pattern[str], str]] = [
         (r"piano|arp|pad|key|gtr|sax|sitar|superpiano|notes|moog|juno|pluck", "tonal"),
         (r"tabla|conga|perc|drum|tok|clak|hand|bottle|glass", "perc"),
         (r"nature|bird|wind|fire|sea|rain|vinyl|noise", "texture"),
+        (r"^(invaders|cosmicg|tacscan|space|subroc3d|incoming|bleep|blip|feelfx)$", "fx"),
+        (r"^dr(\d+|_few)?$|^gretsch$", "perc"),
+        (r"^stab$", "tonal"),
     ]
 ]
 
