@@ -27,6 +27,8 @@ def layout(ids: list[str], vectors: np.ndarray) -> dict[str, tuple[float, float]
     if n == 1:
         return {ids[0]: (0.5, 0.5)}
     scaled = StandardScaler().fit_transform(np.asarray(vectors, dtype=float))
+    if not np.any(np.ptp(scaled, axis=0) > 1e-12):
+        return {i: (0.5, 0.5) for i in ids}  # all vectors identical: nothing to separate
     if n < MIN_UMAP_SAMPLES:
         xy = PCA(n_components=2, random_state=42).fit_transform(scaled)
     else:
