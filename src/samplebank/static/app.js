@@ -70,13 +70,21 @@ export async function patch(id, fields) {
 
 const byBankN = (a, b) => (a.bank < b.bank ? -1 : a.bank > b.bank ? 1 : a.n - b.n || (a.source < b.source ? -1 : 1));
 
+let loaded = false; // set once /api/samples has answered; until then every status poll retries
+
 export async function loadSamples() {
-  const res = await fetch("/api/samples");
-  if (!res.ok) return;
-  state.samples = (await res.json()).sort(byBankN);
+  try {
+    const res = await fetch("/api/samples");
+    if (!res.ok) return false;
+    state.samples = (await res.json()).sort(byBankN);
+  } catch {
+    return false; // server unreachable: the status poll retries
+  }
+  loaded = true;
   byId.clear();
   for (const s of state.samples) byId.set(s.id, s);
   emit("samples");
+  return true;
 }
 
 // ---------- filters ----------
@@ -110,16 +118,21 @@ export function select(id, { audition = true } = {}) {
 // ---------- actions on the selected sample ----------
 export async function copy(s) {
   const text = snippet(s);
+  let ok = true;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
     const ta = Object.assign(document.createElement("textarea"), { value: text });
     document.body.append(ta);
     ta.select();
-    document.execCommand("copy");
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
     ta.remove();
   }
-  toast(`copied  ${text}`);
+  toast(ok ? `copied  ${text}` : `copy failed  ${text}`);
 }
 
 let toastTimer;
@@ -245,7 +258,7 @@ async function pollStatus() {
     const prev = state.status;
     state.status = next;
     emit("status");
-    if ((prev.analysing && !next.analysing) || next.samples !== state.samples.length) await loadSamples();
+    if (!loaded || (prev.analysing && !next.analysing) || next.samples !== state.samples.length) await loadSamples();
   } catch {
     state.status = { ...state.status, dirt: false };
     emit("status");
@@ -308,7 +321,8 @@ export async function start() {
   const wanted = new URL(location.href).searchParams.get("view");
   setView(views.has(wanted) ? wanted : "list");
   renderFilters();
+  // start polling first: if the server is down now, a later poll loads the samples
+  setInterval(pollStatus, 3000);
   await loadSamples();
   await pollStatus();
-  setInterval(pollStatus, 3000);
 }
