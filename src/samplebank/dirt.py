@@ -1,6 +1,7 @@
 """OSC client for SuperDirt (previews, reachability) and the sclang bank-load hook."""
 
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -26,12 +27,25 @@ class Dirt:
         self.addr = addr
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.bind(("127.0.0.1", reply_port))
+        self._lock = threading.Lock()
 
     def close(self) -> None:
         self._sock.close()
 
     def _send(self, packet) -> None:
-        self._sock.sendto(packet.dgram, self.addr)
+        try:
+            self._sock.sendto(packet.dgram, self.addr)
+        except OSError:
+            pass  # nothing listening / network hiccup: previews are best effort
+
+    def _drain(self) -> None:
+        """Discard stale replies. Caller holds the lock."""
+        self._sock.setblocking(False)
+        try:
+            while True:
+                self._sock.recvfrom(65535)
+        except OSError:
+            pass
 
     def _wait_for(self, address: str, timeout: float) -> list | None:
         """Return the args of the first `address` message within `timeout`, else None."""
@@ -41,7 +55,7 @@ class Dirt:
                 self._sock.settimeout(left)
                 try:
                     data, _ = self._sock.recvfrom(65535)
-                except (socket.timeout, BlockingIOError):
+                except OSError:
                     return None
                 try:
                     msg = OscMessage(data)
@@ -61,16 +75,20 @@ class Dirt:
         self._send(bundle.build())
 
     def hello(self, timeout: float = 0.5) -> bool:
-        self._send(_message("/dirt/hello", []))
-        return self._wait_for("/dirt/hello/reply", timeout) is not None
+        with self._lock:
+            self._drain()
+            self._send(_message("/dirt/hello", []))
+            return self._wait_for("/dirt/hello/reply", timeout) is not None
 
     def load_bank(self, path: Path, name: str, timeout: float = 3.0) -> int | None:
-        self._send(_message("/samplebank/load", [str(path), name]))
-        end = time.monotonic() + timeout
-        while (left := end - time.monotonic()) > 0:
-            reply = self._wait_for("/samplebank/loaded", left)
-            if reply is None:
-                return None
-            if len(reply) >= 2 and str(reply[0]) == name:
-                return int(reply[1])
-        return None
+        with self._lock:
+            self._drain()
+            self._send(_message("/samplebank/load", [str(path), name]))
+            end = time.monotonic() + timeout
+            while (left := end - time.monotonic()) > 0:
+                reply = self._wait_for("/samplebank/loaded", left)
+                if reply is None:
+                    return None
+                if len(reply) >= 2 and str(reply[0]) == name:
+                    return int(reply[1])
+            return None

@@ -16,6 +16,8 @@ class Fake:
     def __init__(self, replies: dict[str, tuple[str, list]] | None = None):
         self.received: list[tuple[str, tuple]] = []
         self.replies = replies or {}
+        self.delay = 0.0
+        self.mute = False
         disp = Dispatcher()
         disp.set_default_handler(self._handle, needs_reply_address=True)
         self.server = ThreadingOSCUDPServer(("127.0.0.1", 0), disp)
@@ -25,8 +27,10 @@ class Fake:
 
     def _handle(self, client, address, *args):
         self.received.append((address, args))
-        if address in self.replies:
+        if address in self.replies and not self.mute:
             r_addr, r_args = self.replies[address]
+            if self.delay:
+                time.sleep(self.delay)
             SimpleUDPClient(*client).send_message(r_addr, r_args)
 
     def wait_for(self, address: str, timeout=2.0):
@@ -101,3 +105,57 @@ def test_load_bank_returns_count(make_fake, tmp_path: Path):
 def test_load_bank_none_on_timeout(make_fake, tmp_path: Path):
     _, dirt = make_fake()
     assert dirt.load_bank(tmp_path, "x", timeout=0.2) is None
+
+
+def test_concurrent_hello_and_load_bank(make_fake, tmp_path: Path):
+    fake, dirt = make_fake({
+        "/dirt/hello": ("/dirt/hello/reply", []),
+        "/samplebank/load": ("/samplebank/loaded", ["k", 2]),
+    })
+    fake.delay = 0.1
+    out = {}
+    ts = [
+        threading.Thread(target=lambda: out.update(h=dirt.hello(timeout=1.5))),
+        threading.Thread(target=lambda: out.update(l=dirt.load_bank(tmp_path, "k", timeout=3.0))),
+    ]
+    t0 = time.monotonic()
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(5)
+    assert not any(t.is_alive() for t in ts)
+    assert out == {"h": True, "l": 2}
+    assert time.monotonic() - t0 < 3.0
+
+
+def test_stale_hello_reply_not_reused(make_fake):
+    fake, dirt = make_fake({"/dirt/hello": ("/dirt/hello/reply", [])})
+    fake.delay = 0.7
+    assert dirt.hello(timeout=0.2) is False
+    time.sleep(0.8)  # late reply now sits in the socket
+    fake.mute = True
+    assert dirt.hello(timeout=0.2) is False
+
+
+def test_stale_load_reply_not_reused(make_fake, tmp_path: Path):
+    fake, dirt = make_fake({"/samplebank/load": ("/samplebank/loaded", ["k", 9])})
+    fake.delay = 0.5
+    assert dirt.load_bank(tmp_path, "k", timeout=0.2) is None
+    time.sleep(0.6)
+    fake.mute = True
+    assert dirt.load_bank(tmp_path, "k", timeout=0.2) is None
+
+
+def test_play_and_hello_without_listener():
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()  # free port, nobody listening
+    dirt = Dirt(addr=("127.0.0.1", port))
+    try:
+        assert dirt.play("bd", 0) is None
+        assert dirt.hello(timeout=0.2) is False
+    finally:
+        dirt.close()
