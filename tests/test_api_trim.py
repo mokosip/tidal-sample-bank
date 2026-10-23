@@ -258,3 +258,32 @@ def test_delete_during_commit_no_500(env, monkeypatch):
     assert client.delete(f"/api/upload/stage/{s['batch']}").status_code == 204
     t.join()
     assert out[0].status_code == 200 and out[0].json()["added"] == ["take.wav"]
+
+
+def test_missing_file_outside_staging_is_not_expired(env, monkeypatch):
+    import samplebank.app as appmod
+    client, *_ = env
+    s = stage(client, ("x.wav", wav_bytes(), "audio/wav"))
+    f = s["files"][0]
+
+    def boom(*a, **k):
+        raise FileNotFoundError("/somewhere/else")
+
+    monkeypatch.setattr(appmod, "ingest", boom)
+    c = TestClient(client.app, raise_server_exceptions=False)
+    r = commit(c, s["batch"], "b", [{"token": f["token"], "action": "whole"}])
+    assert r.status_code == 500
+    monkeypatch.undo()
+    # the claim is released, the batch is still there
+    assert commit(client, s["batch"], "b", [{"token": f["token"], "action": "whole"}]).status_code == 200
+
+
+def test_vanished_staged_file_is_410(env):
+    client, _, roots = env
+    s = stage(client, ("x.wav", wav_bytes(), "audio/wav"))
+    f = s["files"][0]
+    root = roots["own"].parent / "staging" / s["batch"]
+    for p in root.rglob("*"):
+        if p.is_file():
+            p.unlink()
+    assert commit(client, s["batch"], "b", [{"token": f["token"], "action": "whole"}]).status_code == 410

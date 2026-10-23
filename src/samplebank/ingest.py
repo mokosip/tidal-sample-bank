@@ -75,6 +75,7 @@ def _check_frames(data: bytes, unreadable: str) -> None:
         raise RuntimeError("no audio frames")
 
 
+_BROWSER_WAV = {"PCM_16", "PCM_24", "PCM_32", "PCM_U8", "FLOAT"}
 _WAV_SUBTYPES = {"PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"}
 
 
@@ -95,7 +96,10 @@ def decode_to_wav(filename: str, data: bytes) -> bytes:
     ext = _basename(filename).rpartition(".")[2].lower()
     if ext == "wav":
         _check_frames(data, "not a readable audio file")
-        return data
+        info = sf.info(io.BytesIO(data))
+        if info.format == "WAV" and info.subtype in _BROWSER_WAV:
+            return data
+        return _aiff_to_wav(data)  # a .wav the browser can't decode (ADPCM, really AIFF …)
     if ext in config.EXTS:
         _check_frames(data, "not a readable audio file")
         return _aiff_to_wav(data)

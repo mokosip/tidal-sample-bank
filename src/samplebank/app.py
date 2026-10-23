@@ -318,6 +318,15 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
             return r
         return await run_in_threadpool(_commit, body)
 
+    class _StagedGone(Exception):
+        pass
+
+    def _staged_bytes(path):
+        try:
+            return path.read_bytes()
+        except FileNotFoundError:
+            raise _StagedGone from None  # only a vanished staging file means "expired"
+
     def _commit(body: CommitBody):
         expired = JSONResponse({"error": "upload expired — drop the files again"}, status_code=410)
         if not _ID.fullmatch(body.batch):
@@ -328,7 +337,7 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
             claims.add(body.batch)
         try:
             return _commit_claimed(body, expired)
-        except FileNotFoundError:
+        except _StagedGone:
             return expired
         finally:
             with claims_lock:
@@ -357,13 +366,13 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
                 continue
             seen.add(item.token)
             if item.action == "whole":
-                files.append((staged.filename, staged.original.read_bytes()))
+                files.append((staged.filename, _staged_bytes(staged.original)))
             elif item.action == "range":
                 if item.start is None or item.end is None:
                     rejected.append([staged.filename, "range needs start and end"])
                     continue
                 try:
-                    cut = cut_wav(staged.source.read_bytes(), item.start, item.end, item.fade)
+                    cut = cut_wav(_staged_bytes(staged.source), item.start, item.end, item.fade)
                 except ValueError as e:
                     rejected.append([staged.filename, str(e)])
                     continue

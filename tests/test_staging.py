@@ -164,3 +164,32 @@ def test_empty_existing_root_is_adopted(tmp_path):
     root.mkdir()
     Staging(root).purge()
     assert (root / ".samplebank-staging").exists()
+
+
+def test_wav_passthrough_is_byte_identical():
+    from samplebank.ingest import decode_to_wav
+    for st in ("PCM_16", "PCM_24", "PCM_U8", "FLOAT"):
+        data = wav(0.1, subtype=st)
+        assert decode_to_wav("a.wav", data) == data, st
+
+
+def test_adpcm_wav_is_reencoded_to_pcm16():
+    from samplebank.ingest import decode_to_wav
+    rng = np.random.default_rng(0)
+    buf = io.BytesIO()
+    sf.write(buf, rng.uniform(-0.3, 0.3, (4410, 2)), 44100, format="WAV", subtype="IMA_ADPCM")
+    data = buf.getvalue()
+    assert sf.info(io.BytesIO(data)).subtype == "IMA_ADPCM"
+    out = decode_to_wav("a.wav", data)
+    info = sf.info(io.BytesIO(out))
+    ref = sf.info(io.BytesIO(data))
+    assert (info.format, info.subtype) == ("WAV", "PCM_16")
+    assert (info.samplerate, info.channels, info.frames) == (ref.samplerate, ref.channels, ref.frames)
+
+
+def test_aiff_named_wav_is_reencoded_to_wav():
+    from samplebank.ingest import decode_to_wav
+    data = wav(0.1, fmt="AIFF", subtype="PCM_24")
+    out = decode_to_wav("a.wav", data)
+    info = sf.info(io.BytesIO(out))
+    assert (info.format, info.subtype) == ("WAV", "PCM_24")
