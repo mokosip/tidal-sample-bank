@@ -65,6 +65,16 @@ def _convert(data: bytes, ext: str) -> bytes:
         return dst.read_bytes()
 
 
+def _check_frames(data: bytes, unreadable: str) -> None:
+    """SuperDirt skips 0-frame files, which would shift every later n."""
+    try:
+        frames = sf.info(io.BytesIO(data)).frames
+    except Exception:
+        raise RuntimeError(unreadable)
+    if frames == 0:
+        raise RuntimeError("no audio frames")
+
+
 def _free_name(folder: Path, stem: str, ext: str) -> str:
     name = f"{stem}.{ext}"
     i = 2
@@ -97,13 +107,11 @@ def ingest(files: list[tuple[str, bytes]], bank: str, roots) -> IngestResult:
         ext_l = ext.lower()
         try:
             if ext_l in config.EXTS:
-                try:
-                    sf.info(io.BytesIO(data))
-                except Exception:
-                    raise RuntimeError("not a readable audio file")
+                _check_frames(data, "not a readable audio file")
                 out = data
             elif ext_l in _CONVERTIBLE:
                 out = _convert(data, ext_l)
+                _check_frames(out, "not a decodable audio file")
                 ext_l = "wav"
             else:
                 raise RuntimeError("unsupported file type")

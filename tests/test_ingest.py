@@ -33,7 +33,7 @@ def roots(tmp_path):
     (tmp_path / "dub" / "pad").mkdir(parents=True)
     (tmp_path / "own" / "mine").mkdir(parents=True)
     for d in ("dirt/bd", "dub/pad", "own/mine"):
-        (tmp_path / d / "x.wav").write_bytes(b"RIFF")  # bank_names lists banks with audio files
+        sf.write(tmp_path / d / "x.wav", [0.0] * 10, 8000)  # bank_names lists banks with readable audio
     return {k: tmp_path / k for k in ("dirt", "dub", "own")}
 
 
@@ -49,11 +49,11 @@ def test_clash_with_dirt_suggests_mine(roots):
 
 def test_clash_increments(roots):
     (roots["own"] / "bd_mine").mkdir()
-    (roots["own"] / "bd_mine" / "x.wav").write_bytes(b"RIFF")
+    sf.write(roots["own"] / "bd_mine" / "x.wav", [0.0] * 10, 8000)
     # own bank bd_mine exists -> it is a valid append target, so suggestion is it
     assert check_bank("bd", roots) == (False, "bd_mine")
     (roots["dirt"] / "bd_mine").mkdir()
-    (roots["dirt"] / "bd_mine" / "x.wav").write_bytes(b"RIFF")
+    sf.write(roots["dirt"] / "bd_mine" / "x.wav", [0.0] * 10, 8000)
     assert check_bank("bd", roots) == (False, "bd_mine2")
 
 
@@ -143,3 +143,29 @@ def test_bad_names_do_not_crash_batch(roots, tmp_path, name):
     res = ingest([(name, wav_bytes(tmp_path)), ("ok.wav", wav_bytes(tmp_path))], "newbank", roots)
     assert res.added == ["ok.wav"]
     assert len(res.rejected) == 1
+
+
+def _header_only_wav():
+    import io
+
+    import numpy as np
+
+    b = io.BytesIO()
+    sf.write(b, np.zeros(0, dtype="float32"), 44100, format="WAV")
+    return b.getvalue()
+
+
+def test_header_only_wav_rejected_valid_added(roots, tmp_path):
+    res = ingest([("a_empty.wav", _header_only_wav()), ("b_ok.wav", wav_bytes(tmp_path))], "newbank", roots)
+    assert res.added == ["b_ok.wav"]
+    assert res.rejected == [("a_empty.wav", "no audio frames")]
+    assert not (roots["own"] / "newbank" / "a_empty.wav").exists()
+
+
+def test_converted_zero_frame_output_rejected(roots, monkeypatch):
+    from samplebank import ingest as mod
+
+    monkeypatch.setattr(mod, "_convert", lambda data, ext: _header_only_wav())
+    res = ingest([("a.mp3", b"x")], "newbank", roots)
+    assert res.added == [] and res.rejected == [("a.mp3", "no audio frames")]
+    assert not (roots["own"] / "newbank").exists() or not list((roots["own"] / "newbank").iterdir())

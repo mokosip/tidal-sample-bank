@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import soundfile as sf
+
 from . import config
 
 
@@ -18,6 +20,15 @@ def _is_audio(name: str) -> bool:
     return name.rsplit(".", 1)[-1].lower() in config.EXTS if "." in name else False
 
 
+def _loadable(path: Path) -> bool:
+    """SuperDirt skips files whose header reports 0 frames (extBuffer.sc: failed = numFrames == 0)
+    and files it cannot read at all, so they must not take an n."""
+    try:
+        return sf.info(str(path)).frames > 0
+    except Exception:
+        return False
+
+
 def scan(roots: dict[str, Path]) -> list[Sample]:
     """Index every readable file per bank; n follows SuperDirt's sorted-filename order."""
     samples: list[Sample] = []
@@ -28,7 +39,9 @@ def scan(roots: dict[str, Path]) -> list[Sample]:
             if not bank_dir.is_dir():
                 continue
             names = sorted(p.name for p in bank_dir.iterdir() if p.is_file())
-            audio = [name for name in names if _is_audio(name)]
+            # SC's `*` glob skips dotfiles (AppleDouble ._foo.wav would shift n)
+            audio = [name for name in names
+                     if not name.startswith(".") and _is_audio(name) and _loadable(bank_dir / name)]
             for n, name in enumerate(audio):
                 samples.append(Sample(
                     id=f"{source}/{bank_dir.name}/{name}",
