@@ -1,4 +1,5 @@
 import io
+import math
 
 import numpy as np
 import pytest
@@ -52,7 +53,7 @@ def test_fades_are_linear_5ms():
     sr = 44100
     out, _ = _read(cut_wav(_wav(np.ones(sr), sr, "FLOAT"), 0.2, 0.6))
     out = out[:, 0]
-    f = round(FADE_MS / 1000 * sr)
+    f = math.floor(FADE_MS / 1000 * sr + 0.5)
     n = len(out)
     assert out[0] == 0.0
     assert out[-1] == 0.0
@@ -65,7 +66,7 @@ def test_fades_are_linear_5ms():
 def test_fade_gains_formula():
     sr = 44100
     n = 1000
-    f = round(0.005 * sr)
+    f = math.floor(0.005 * sr + 0.5)
     g = fade_gains(n, sr)
     assert g.dtype == np.float64 and g.shape == (n,)
     assert g[0] == 0.0 and g[n - 1] == 0.0
@@ -98,3 +99,17 @@ def test_rejects_bad_ranges(start, end):
 def test_whole_range_ok():
     out, _ = _read(cut_wav(_wav(np.zeros(44100)), 0, 1.0))
     assert len(out) == 44100
+
+
+@pytest.mark.parametrize("sr,f", [(44100, 221), (48000, 240)])
+def test_fade_length_round_half_up(sr, f):
+    g = fade_gains(10 * sr // 100 + 1000, sr)
+    assert g[f] == 1.0
+    assert g[f - 1] == pytest.approx((f - 1) / f)
+
+
+def test_frame_conversion_round_half_up():
+    src = np.arange(8, dtype=np.int16)
+    raw = _wav(src, sr=2)
+    out, _ = _read(cut_wav(raw, 0.25, 1.75, fade=False), dtype="int16")
+    assert out[:, 0].tolist() == [1, 2, 3]  # frames [floor(.5+.5), floor(3.5+.5)) = [1, 4)
