@@ -48,7 +48,7 @@ the edges to adjust, click to play from a point.
 | `f` | edge fades on / off |
 | `esc` | cancel the whole upload |
 
-The readout shows start, end and length in milliseconds (3 decimals) because nudging goes down to 1 ms.
+The readout shows start, end and length in seconds with 3 decimals (millisecond resolution) because nudging goes down to 1 ms.
 
 Buttons: **back**, **keep whole file**, **skip this file**. After the last file the
 batch is saved. If the bank name clashes, only the name is asked again; your selections
