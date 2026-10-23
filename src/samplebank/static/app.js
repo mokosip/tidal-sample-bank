@@ -242,7 +242,7 @@ function renderStatus() {
   // two separate states: the samplebank server itself is down, or only SuperDirt is
   const banner = $("banner");
   banner.hidden = st.server && st.dirt;
-  banner.textContent = st.server ? DIRT_MSG : "samplebank server not reachable — start it again (uv run samplebank); this page reconnects by itself.";
+  banner.textContent = st.server ? DIRT_MSG : "samplebank server not reachable — start it again (uv run python -m samplebank); this page reconnects by itself.";
   $("status").textContent = st.analysing ? "analysing…" : "";
   $("status").classList.toggle("busy", st.analysing);
   for (const b of document.querySelectorAll("[data-view]")) {
