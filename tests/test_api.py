@@ -96,7 +96,7 @@ def test_play_calls_dirt(env):
 
 def test_status_dirt_false_when_unreachable(env):
     client, dirt, *_ = env
-    assert client.get("/api/status").json() == {"dirt": True, "samples": 4, "analysing": False}
+    assert client.get("/api/status").json() == {"dirt": True, "samples": 4, "analysing": False, "rebuilding": False}
     dirt.up = False
     assert client.get("/api/status").json()["dirt"] is False
 
@@ -208,3 +208,33 @@ def test_rebuild_keeps_concurrent_placement_and_single_flight(env, monkeypatch):
     xy = st.cache.layout["own/new/x.wav"]
     assert xy is not None and all(0 <= v <= 1 for v in xy)
     assert set(st.features) <= set(st.cache.layout)
+
+
+def test_status_rebuilding_while_layout_runs(env, monkeypatch):
+    import threading
+
+    from samplebank import app as appmod
+
+    client, *_ = env
+    st = client.app.state.st
+    real = appmod.compute_layout
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(ids, vectors):
+        entered.set()
+        release.wait(5)
+        return real(ids, vectors)
+
+    monkeypatch.setattr(appmod, "compute_layout", slow)
+    assert client.get("/api/status").json()["rebuilding"] is False
+    t = threading.Thread(target=st.full_layout)
+    t.start()
+    try:
+        assert entered.wait(5)
+        status = client.get("/api/status").json()
+        assert status["rebuilding"] is True
+        assert {k: status[k] for k in ("dirt", "samples", "analysing")} == {"dirt": True, "samples": 4, "analysing": False}
+    finally:
+        release.set()
+        t.join()
+    assert client.get("/api/status").json()["rebuilding"] is False

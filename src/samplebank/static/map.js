@@ -321,18 +321,28 @@ async function rebuildMap() {
   }
   rebuilding = true;
   renderTools();
+  // the server holds its rebuild lock from the 202 on; poll the cheap status until it lets go
   const t0 = Date.now();
-  let changed = false;
-  while (Date.now() - t0 < 30000) {
-    await new Promise((r) => setTimeout(r, 2000));
-    if ((await loadSamples()) && coordSig() !== before) {
-      changed = true;
-      break;
+  let done = false;
+  while (!done && Date.now() - t0 < 60000) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      done = (await (await fetch("/api/status")).json()).rebuilding === false;
+    } catch {
+      // server briefly unreachable: keep polling until the cap
     }
   }
   rebuilding = false;
   renderTools();
-  toast(changed ? "map rebuilt" : "map rebuilt — no positions changed within 30 s");
+  if (!done) {
+    toast("rebuild still running after 60 s — reload later to see the new map");
+    return;
+  }
+  if (!(await loadSamples())) {
+    toast("map rebuilt, but reloading samples failed");
+    return;
+  }
+  toast(coordSig() === before ? "map rebuilt — layout unchanged" : "map rebuilt");
 }
 
 function renderTools() {

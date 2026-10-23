@@ -68,9 +68,10 @@ class State:
         self.cache.save()
         self.ensure_layout()
 
-    def full_layout(self) -> bool:
-        """Recompute the whole map. Returns False if another rebuild is already running."""
-        if not self._rebuild.acquire(blocking=False):
+    def full_layout(self, held: bool = False) -> bool:
+        """Recompute the whole map. Returns False if another rebuild is already running.
+        held=True: the caller already acquired the single-flight lock; it is released here."""
+        if not held and not self._rebuild.acquire(blocking=False):
             return False
         try:
             with self.lock:
@@ -183,7 +184,8 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
 
     @app.get("/api/status")
     def status():
-        return {"dirt": st.dirt.hello(), "samples": len(st.samples), "analysing": st.analysing}
+        return {"dirt": st.dirt.hello(), "samples": len(st.samples), "analysing": st.analysing,
+                "rebuilding": st._rebuild.locked()}
 
     @app.post("/api/upload")
     async def upload(request: Request):
@@ -231,11 +233,16 @@ def create_app(roots=None, meta_path=None, cache_path=None, tidal_dir=None, dirt
     def rebuild_map():
         def run():
             try:
-                st.full_layout()
+                st.full_layout(held=True)
             except Exception:
                 log.exception("map rebuild failed")
-        if not st._rebuild.locked():
-            threading.Thread(target=run, daemon=True).start()
+        # take the lock before answering, so /api/status says rebuilding from the first poll
+        if st._rebuild.acquire(blocking=False):
+            try:
+                threading.Thread(target=run, daemon=True).start()
+            except Exception:
+                st._rebuild.release()
+                raise
         return Response(status_code=202)
 
     @app.get("/")
