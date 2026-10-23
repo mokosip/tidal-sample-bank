@@ -77,8 +77,11 @@ function summary(r) {
   const parts = [`added ${r.added.length}`];
   if (r.rejected.length) parts.push(`rejected ${r.rejected.length} (${r.rejected.map(([f, why]) => `${f}: ${why}`).join("; ")})`);
   let msg = parts.join(", ");
-  if (r.added.length)
-    msg += r.loaded == null ? "\nSuperDirt not reachable — will load on next boot" : `\nloaded in SuperDirt ✓ (${r.loaded})`;
+  if (r.added.length) {
+    if (r.loaded == null) msg += "\nSuperDirt not reachable — will load on next boot";
+    else if (r.loaded === 0) msg += `\nSuperDirt didn't load any files from ${r.bank} (name clash with a synth?)`;
+    else msg += `\nloaded in SuperDirt ✓ (${r.loaded})`;
+  }
   return msg;
 }
 
@@ -116,7 +119,10 @@ async function submit(bankRaw) {
     return;
   }
   if (!res.ok) {
-    $("upload-msg").textContent = body.error ?? `upload failed (${res.status})`;
+    // our own errors use `error`; FastAPI/Starlette (too many files, ...) use `detail`
+    const detail = typeof body.detail === "string" ? body.detail : Array.isArray(body.detail) ? body.detail.map((d) => d.msg).join("; ") : null;
+    $("upload-msg").textContent =
+      body.error ?? detail ?? (res.status === 413 ? "upload too large (413)" : `upload failed (${res.status})`);
     $("upload-bank").focus();
     return;
   }

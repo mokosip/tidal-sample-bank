@@ -17,7 +17,7 @@ export const state = {
   filters: { type: null, tag: null, star: false, unused: false, q: "" },
   selectedId: null,
   view: "list",
-  status: { dirt: true, samples: 0, analysing: false },
+  status: { dirt: true, samples: 0, analysing: false, server: true },
 };
 const byId = new Map();
 
@@ -235,9 +235,14 @@ function renderFilters() {
   tags.replaceChildren(...items);
 }
 
+const DIRT_MSG = "SuperDirt not reachable — previews are silent. Start SuperDirt in SuperCollider; this page reconnects by itself.";
+
 function renderStatus() {
   const st = state.status;
-  $("banner").hidden = st.dirt;
+  // two separate states: the samplebank server itself is down, or only SuperDirt is
+  const banner = $("banner");
+  banner.hidden = st.server && st.dirt;
+  banner.textContent = st.server ? DIRT_MSG : "samplebank server not reachable — start it again (uv run samplebank); this page reconnects by itself.";
   $("status").textContent = st.analysing ? "analysing…" : "";
   $("status").classList.toggle("busy", st.analysing);
   for (const b of document.querySelectorAll("[data-view]")) {
@@ -256,11 +261,11 @@ async function pollStatus() {
     const res = await fetch("/api/status");
     const next = await res.json();
     const prev = state.status;
-    state.status = next;
+    state.status = { ...next, server: true };
     emit("status");
     if (!loaded || (prev.analysing && !next.analysing) || next.samples !== state.samples.length) await loadSamples();
   } catch {
-    state.status = { ...state.status, dirt: false };
+    state.status = { ...state.status, server: false };
     emit("status");
   }
 }
@@ -278,11 +283,13 @@ function onKey(e) {
   }
   const s = selected();
   const ti = TYPE_KEYS.indexOf(e.key);
+  // a held key must not fire the same edit again before the first PATCH has answered
+  if (e.repeat && (e.key === "f" || ti >= 0)) return e.preventDefault();
   if (e.key === "/") $("search").focus();
   else if (e.key === "m") setView("map");
   else if (e.key === "l") setView("list");
   else if (e.key === " ") s && play(s.id);
-  else if (e.key === "f") s && patch(s.id, { star: !s.star }).then((u) => u && toast(u.star ? "★ starred" : "☆ unstarred"));
+  else if (e.key === "f") s && patch(s.id, { star: !sampleById(s.id).star }).then((u) => u && toast(u.star ? "★ starred" : "☆ unstarred"));
   else if (e.key === "t") inspector.editTags();
   else if (e.key === "y") s && copy(s);
   else if (ti >= 0) s && patch(s.id, { type: TYPES[ti] }).then((u) => u && toast(`type → ${u.type}`));
